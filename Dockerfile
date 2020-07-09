@@ -22,7 +22,7 @@
 # from your docker directory.
 
 # https://github.com/tianon/docker-brew-ubuntu-core/commit/d4313e13366d24a97bd178db4450f63e221803f1
-ARG BASE_IMAGE=ubuntu:bionic-20191029@sha256:6e9f67fa63b0323e9a1e587fd71c561ba48a034504fb804fd26fd8800039835d
+ARG BASE_IMAGE=nvidia/cuda:11.0-base-rc
 FROM $BASE_IMAGE AS builder
 
 USER root
@@ -38,8 +38,18 @@ RUN apt-get update \
     python3-pycurl \
     nodejs \
     npm \
+    wget \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
+
+RUN wget --quiet https://repo.anaconda.com/archive/Anaconda3-2020.02-Linux-x86_64.sh -O ~/anaconda.sh && \
+    /bin/bash ~/anaconda.sh -b -p /opt/conda && \
+    rm ~/anaconda.sh && \
+    ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
+    echo ". /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc && \
+    echo "conda activate base" >> ~/.bashrc
+
+ENV PATH=/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # copy everything except whats in .dockerignore, its a
 # compromise between needing to rebuild and maintaining
@@ -72,15 +82,35 @@ RUN apt-get update \
     python3-pycurl \
     nodejs \
     npm \
+    wget \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-ENV SHELL=/bin/bash \
+RUN wget --quiet https://repo.anaconda.com/archive/Anaconda3-2020.02-Linux-x86_64.sh -O ~/anaconda.sh && \
+    /bin/bash ~/anaconda.sh -b -p /opt/conda && \
+    rm ~/anaconda.sh && \
+    ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
+    echo ". /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc && \
+    echo "conda activate base" >> ~/.bashrc
+
+ENV PATH=/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    SHELL=/bin/bash \
     LC_ALL=en_US.UTF-8 \
     LANG=en_US.UTF-8 \
     LANGUAGE=en_US.UTF-8
 
 RUN  locale-gen $LC_ALL
+
+RUN conda install tensorflow-gpu r-base
+
+RUN apt-get update \
+ && apt-get install -yq --no-install-recommends \
+    libcairo2-dev \
+    libxt-dev \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN R -e "install.packages('IRkernel', repos='http://cran.us.r-project.org'); IRkernel::installspec(user=FALSE)"
 
 # always make sure pip is up to date!
 RUN python3 -m pip install --no-cache --upgrade setuptools pip
