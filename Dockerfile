@@ -21,7 +21,7 @@
 # your jupyterhub_config.py will be added automatically
 # from your docker directory.
 
-ARG BASE_IMAGE=tensorflow/tensorflow:2.4.2-gpu
+ARG BASE_IMAGE=tensorflow/tensorflow:2.11.0-gpu
 FROM $BASE_IMAGE AS builder
 
 USER root
@@ -89,7 +89,7 @@ RUN apt-get update \
     && add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/" \
     && apt install -yq --no-install-recommends r-base
 
-RUN pip install notebook matplotlib scipy sklearn pandas mongoengine
+RUN pip install notebook matplotlib scipy sklearn pandas mongoengine https://github.com/andreas-h/sshauthenticator/archive/v0.1.zip
 
 RUN apt-get update \
     && apt-get install -yq --no-install-recommends \
