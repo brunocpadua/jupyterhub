@@ -50,6 +50,7 @@ myst_heading_anchors = 2
 
 myst_enable_extensions = [
     # available extensions: https://myst-parser.readthedocs.io/en/latest/syntax/optional.html
+    "attrs_inline",
     "colon_fence",
     "deflist",
     "fieldlist",
@@ -185,6 +186,7 @@ linkcheck_ignore = [
     "https://github.com/jupyterhub/jupyterhub/pull/",  # too many PRs in changelog
     "https://github.com/jupyterhub/jupyterhub/compare/",  # too many comparisons in changelog
     r"https?://(localhost|127.0.0.1).*",  # ignore localhost references in auto-links
+    r".*/rest-api.html#.*",  # ignore javascript-resolved internal rest-api links
     r"https://jupyter.chameleoncloud.org",  # FIXME: ignore (presumably) short-term SSL issue
 ]
 linkcheck_anchors_ignore = [
@@ -198,7 +200,9 @@ linkcheck_anchors_ignore = [
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3/", None),
     "tornado": ("https://www.tornadoweb.org/en/stable/", None),
+    "jupyter-server": ("https://jupyter-server.readthedocs.io/en/stable/", None),
 }
+
 # -- Options for the opengraph extension -------------------------------------
 # ref: https://github.com/wpilibsuite/sphinxext-opengraph#options
 #
