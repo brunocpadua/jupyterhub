@@ -35,25 +35,25 @@ RUN apt-get update \
         python3-dev \
         python3-pip \
         python3-pycurl \
-        wget \
-    && curl -sL https://deb.nodesource.com/setup_16.x | bash - \
+        python3-venv  \
+    && curl -sL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -yq nodejs \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --upgrade setuptools pip build wheel
+RUN npm install --global yarn
 
 # copy everything except whats in .dockerignore, its a
 # compromise between needing to rebuild and maintaining
 # what needs to be part of the build
 COPY . /src/jupyterhub/
-
 WORKDIR /src/jupyterhub
-
-RUN python3 -m pip install --upgrade setuptools pip wheel
 
 # Build client component packages (they will be copied into ./share and
 # packaged with the built wheel.)
-RUN npm install
-RUN python3 -m pip wheel --wheel-dir wheelhouse .
+RUN python3 -m build --wheel
+RUN python3 -m pip wheel --wheel-dir wheelhouse dist/*.whl
 
 
 FROM $BASE_IMAGE
@@ -64,14 +64,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -yq --no-install-recommends \
-        build-essential \
         ca-certificates \
+        curl \
+        gnupg \
         locales \
-        python3-dev \
         python3-pip \
         python3-pycurl \
-        wget \
-    && curl -sL https://deb.nodesource.com/setup_16.x | bash - \
+    && curl -sL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -yq nodejs \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -85,11 +84,11 @@ RUN locale-gen $LC_ALL
 
 RUN apt-get update \
     && apt install -yq --no-install-recommends software-properties-common dirmngr \
-    &&  apt-key adv --keyserver keyserver.ubuntu.com --recv-keys E298A3A825C0D65DFD57CBB651716619E084DAB9 \
+    && apt-key adv --keyserver keyserver.ubuntu.com --recv-keys E298A3A825C0D65DFD57CBB651716619E084DAB9 \
     && add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/" \
     && apt install -yq --no-install-recommends r-base
 
-RUN pip install notebook matplotlib scipy sklearn pandas mongoengine https://github.com/andreas-h/sshauthenticator/archive/v0.1.zip
+RUN pip install notebook matplotlib scipy sklearn pandas mongoengine widgetsnbextension ipywidgets ipympl tqdm https://github.com/andreas-h/sshauthenticator/archive/v0.1.zip
 
 RUN apt-get update \
     && apt-get install -yq --no-install-recommends \
@@ -108,7 +107,7 @@ RUN npm install -g configurable-http-proxy@^4.2.0 \
 
 # install the wheels we built in the first stage
 COPY --from=builder /src/jupyterhub/wheelhouse /tmp/wheelhouse
-RUN python3 -m pip install --no-cache --ignore-installed /tmp/wheelhouse/*
+RUN python3 -m pip install --no-cache /tmp/wheelhouse/*
 
 RUN mkdir -p /srv/jupyterhub/
 WORKDIR /srv/jupyterhub/
