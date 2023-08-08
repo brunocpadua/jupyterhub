@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Fragment } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { debounce } from "lodash";
 import PropTypes from "prop-types";
@@ -12,7 +12,7 @@ import {
   CardGroup,
   Collapse,
 } from "react-bootstrap";
-import ReactObjectTableViewer from "react-object-table-viewer";
+import ReactObjectTableViewer from "../ReactObjectTableViewer/ReactObjectTableViewer";
 
 import { Link } from "react-router-dom";
 import { FaSort, FaSortUp, FaSortDown } from "react-icons/fa";
@@ -28,6 +28,13 @@ const AccessServerButton = ({ url }) => (
     </button>
   </a>
 );
+
+const RowListItem = ({ text }) => (
+  <span className="server-dashboard-row-list-item">{text}</span>
+);
+RowListItem.propTypes = {
+  text: PropTypes.string,
+};
 
 const ServerDashboard = (props) => {
   let base_url = window.base_url || "/";
@@ -67,6 +74,7 @@ const ServerDashboard = (props) => {
     shutdownHub,
     startServer,
     stopServer,
+    deleteServer,
     startAll,
     stopAll,
     history,
@@ -160,6 +168,50 @@ const ServerDashboard = (props) => {
     );
   };
 
+  const DeleteServerButton = ({ serverName, userName }) => {
+    if (serverName === "") {
+      return null;
+    }
+    var [isDisabled, setIsDisabled] = useState(false);
+    return (
+      <button
+        className="btn btn-danger btn-xs stop-button"
+        // It's not possible to delete unnamed servers
+        disabled={isDisabled}
+        onClick={() => {
+          setIsDisabled(true);
+          deleteServer(userName, serverName)
+            .then((res) => {
+              if (res.status < 300) {
+                updateUsers(...slice)
+                  .then((data) => {
+                    dispatchPageUpdate(
+                      data.items,
+                      data._pagination,
+                      name_filter,
+                    );
+                  })
+                  .catch(() => {
+                    setIsDisabled(false);
+                    setErrorAlert(`Failed to update users list.`);
+                  });
+              } else {
+                setErrorAlert(`Failed to delete server.`);
+                setIsDisabled(false);
+              }
+              return res;
+            })
+            .catch(() => {
+              setErrorAlert(`Failed to delete server.`);
+              setIsDisabled(false);
+            });
+        }}
+      >
+        Delete Server
+      </button>
+    );
+  };
+
   const StartServerButton = ({ serverName, userName }) => {
     var [isDisabled, setIsDisabled] = useState(false);
     return (
@@ -236,8 +288,13 @@ const ServerDashboard = (props) => {
             break;
         }
         if (Array.isArray(value)) {
-          // cast arrays (e.g. roles, groups) to string
-          value = value.sort().join(", ");
+          value = (
+            <Fragment>
+              {value.sort().flatMap((v) => (
+                <RowListItem text={v} />
+              ))}
+            </Fragment>
+          );
         }
         result[key] = value;
         return result;
@@ -266,7 +323,11 @@ const ServerDashboard = (props) => {
     const userServerName = user.name + serverNameDash;
     const open = collapseStates[userServerName] || false;
     return [
-      <tr key={`${userServerName}-row`} className="user-row">
+      <tr
+        key={`${userServerName}-row`}
+        data-testid={`user-row-${userServerName}`}
+        className="user-row"
+      >
         <td data-testid="user-row-name">
           <span>
             <Button
@@ -311,6 +372,10 @@ const ServerDashboard = (props) => {
                 serverName={server.name}
                 userName={user.name}
                 style={{ marginRight: 20 }}
+              />
+              <DeleteServerButton
+                serverName={server.name}
+                userName={user.name}
               />
               <a
                 href={`${base_url}spawn/${user.name}${
@@ -570,6 +635,7 @@ ServerDashboard.propTypes = {
   shutdownHub: PropTypes.func,
   startServer: PropTypes.func,
   stopServer: PropTypes.func,
+  deleteServer: PropTypes.func,
   startAll: PropTypes.func,
   stopAll: PropTypes.func,
   dispatch: PropTypes.func,

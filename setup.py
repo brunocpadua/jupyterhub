@@ -144,7 +144,7 @@ setup_args = dict(
             "pytest-asyncio>=0.17",
             "pytest-cov",
             "requests-mock",
-            "selenium",
+            "playwright",
             "virtualenv",
         ],
     },
