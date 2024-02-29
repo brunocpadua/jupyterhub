@@ -21,100 +21,155 @@
 # your jupyterhub_config.py will be added automatically
 # from your docker directory.
 
-ARG BASE_IMAGE=tensorflow/tensorflow:2.11.0-gpu
-FROM $BASE_IMAGE AS builder
+######################################################################
+# This Dockerfile uses multi-stage builds with optimisations to build
+# the JupyterHub wheel on the native architecture only
+# https://www.docker.com/blog/faster-multi-platform-builds-dockerfile-cross-compilation-guide/
 
-USER root
-
-ENV DEBIAN_FRONTEND noninteractive
-RUN apt-get update \
-    && apt-get install -yq --no-install-recommends \
-        build-essential \
-        ca-certificates \
-        locales \
-        python3-dev \
-        python3-pip \
-        python3-pycurl \
-        python3-venv  \
-    && curl -sL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -yq nodejs \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN python3 -m pip install --upgrade setuptools pip build wheel
-RUN npm install --global yarn
-
-# copy everything except whats in .dockerignore, its a
-# compromise between needing to rebuild and maintaining
-# what needs to be part of the build
-COPY . /src/jupyterhub/
-WORKDIR /src/jupyterhub
-
-# Build client component packages (they will be copied into ./share and
-# packaged with the built wheel.)
-RUN python3 -m build --wheel
-RUN python3 -m pip wheel --wheel-dir wheelhouse dist/*.whl
+ARG BASE_IMAGE=tensorflow/tensorflow:latest-gpu
 
 
-FROM $BASE_IMAGE
-
-USER root
+######################################################################
+# The JupyterHub wheel is pure Python so can be built for any platform
+# on the native architecture (avoiding QEMU emulation)
+FROM --platform=${BUILDPLATFORM:-linux/amd64} $BASE_IMAGE AS jupyterhub-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update \
-    && apt-get install -yq --no-install-recommends \
-        ca-certificates \
-        curl \
-        gnupg \
-        locales \
-        python3-pip \
-        python3-pycurl \
-    && curl -sL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -yq nodejs \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Don't clear apt cache, and don't combine RUN commands, so that cached layers can
+# be reused in other stages
 
-ENV SHELL=/bin/bash \
+RUN apt-get update -qq \
+ && apt-get install -yqq --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    gnupg \
+    locales \
+    python3-dev \
+    python3-pip \
+    python3-pycurl \
+    python3-venv \
+ && python3 -m pip install --no-cache-dir --upgrade setuptools pip build wheel
+# Ubuntu 22.04 comes with Nodejs 12 which is too old for building JupyterHub JS
+# It's fine at runtime though (used only by configurable-http-proxy)
+ARG NODE_MAJOR=20
+RUN mkdir -p /etc/apt/keyrings \
+ && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+ && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
+ && apt-get update \
+ && apt-get install -yqq --no-install-recommends \
+    nodejs
+
+WORKDIR /src/jupyterhub
+# copy everything except whats in .dockerignore, its a
+# compromise between needing to rebuild and maintaining
+# what needs to be part of the build
+COPY . .
+
+ARG PIP_CACHE_DIR=/tmp/pip-cache
+RUN --mount=type=cache,target=${PIP_CACHE_DIR} \
+    python3 -m build --wheel
+
+# verify installed files
+RUN --mount=type=cache,target=${PIP_CACHE_DIR} \
+    python3 -m pip install ./dist/*.whl \
+ && cd ci \
+ && python3 check_installed_data.py
+
+######################################################################
+# All other wheels required by JupyterHub, some are platform specific
+FROM $BASE_IMAGE AS wheel-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq \
+ && apt-get install -yqq --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    locales \
+    python3-dev \
+    python3-pip \
+    python3-pycurl \
+    python3-venv \
+ && python3 -m pip install --no-cache-dir --upgrade setuptools pip build wheel
+
+WORKDIR /src/jupyterhub
+
+COPY --from=jupyterhub-builder /src/jupyterhub/dist/*.whl /src/jupyterhub/dist/
+ARG PIP_CACHE_DIR=/tmp/pip-cache
+RUN --mount=type=cache,target=${PIP_CACHE_DIR} \
+    python3 -m pip wheel --wheel-dir wheelhouse dist/*.whl
+
+
+######################################################################
+# The final JupyterHub image, platform specific
+FROM $BASE_IMAGE AS jupyterhub
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    SHELL=/bin/bash \
     LC_ALL=en_US.UTF-8 \
     LANG=en_US.UTF-8 \
-    LANGUAGE=en_US.UTF-8
-
-RUN locale-gen $LC_ALL
-
-RUN apt-get update \
-    && apt install -yq --no-install-recommends software-properties-common dirmngr \
-    && apt-key adv --keyserver keyserver.ubuntu.com --recv-keys E298A3A825C0D65DFD57CBB651716619E084DAB9 \
-    && add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/" \
-    && apt install -yq --no-install-recommends r-base
-
-RUN pip install notebook matplotlib scipy sklearn pandas mongoengine widgetsnbextension ipywidgets ipympl tqdm https://github.com/andreas-h/sshauthenticator/archive/v0.1.zip
-
-RUN apt-get update \
-    && apt-get install -yq --no-install-recommends \
-        libcairo2-dev \
-        libxt-dev \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN R -e "install.packages('IRkernel', repos='http://cran.us.r-project.org'); IRkernel::installspec(user=FALSE)"
-
-# always make sure pip is up to date!
-RUN python3 -m pip install --no-cache --upgrade setuptools pip
-
-RUN npm install -g configurable-http-proxy@^4.2.0 \
-    && rm -rf ~/.npm
-
-# install the wheels we built in the first stage
-COPY --from=builder /src/jupyterhub/wheelhouse /tmp/wheelhouse
-RUN python3 -m pip install --no-cache /tmp/wheelhouse/*
-
-RUN mkdir -p /srv/jupyterhub/
-WORKDIR /srv/jupyterhub/
+    LANGUAGE=en_US.UTF-8 \
+    PYTHONDONTWRITEBYTECODE=1
 
 EXPOSE 8000
 
 LABEL maintainer="Jupyter Project <jupyter@googlegroups.com>"
 LABEL org.jupyter.service="jupyterhub"
+
+WORKDIR /srv/jupyterhub
+
+RUN apt-get update -qq \
+ && apt-get install -yqq --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    locales \
+    python-is-python3 \
+    python3-pip \
+    python3-pycurl \
+    nodejs \
+    npm \
+ && locale-gen $LC_ALL \
+ && npm install -g configurable-http-proxy@^4.2.0 \
+ # clean cache and logs
+ && rm -rf /var/lib/apt/lists/* /var/log/* /var/tmp/* ~/.npm
+# install the wheels we built in the previous stage
+RUN --mount=type=cache,from=wheel-builder,source=/src/jupyterhub/wheelhouse,target=/tmp/wheelhouse \
+    # always make sure pip is up to date!
+    python3 -m pip install --no-compile --no-cache-dir --upgrade setuptools pip \
+ && python3 -m pip install --no-compile --no-cache-dir /tmp/wheelhouse/*
+
+# install R
+RUN apt-get update -yqq \
+ && ln -s /usr/lib/python3/dist-packages/apt_pkg.cpython-310-x86_64-linux-gnu.so /usr/lib/python3/dist-packages/apt_pkg.so \
+ && apt install -yqq --no-install-recommends software-properties-common dirmngr \
+ && apt-key adv --keyserver keyserver.ubuntu.com --recv-keys E298A3A825C0D65DFD57CBB651716619E084DAB9 \
+ && add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/" \
+ && apt install -yqq --no-install-recommends r-base
+
+RUN pip install notebook  \
+    matplotlib  \
+    scipy  \
+    scikit-learn  \
+    pandas  \
+    mongoengine \
+    widgetsnbextension \
+    ipywidgets \
+    ipympl \
+    tqdm \
+    sshauthenticator-0.1.zip
+
+RUN apt-get update \
+ && apt-get install -yq --no-install-recommends \
+     libcairo2-dev \
+     libxt-dev \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN R -e "install.packages('IRkernel', repos='http://cran.us.r-project.org'); IRkernel::installspec(user=FALSE)"
 
 CMD ["jupyterhub"]
