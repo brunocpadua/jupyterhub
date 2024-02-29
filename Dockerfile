@@ -21,7 +21,7 @@
 # your jupyterhub_config.py will be added automatically
 # from your docker directory.
 
-ARG BASE_IMAGE=tensorflow/tensorflow:2.4.2-gpu
+ARG BASE_IMAGE=tensorflow/tensorflow:2.11.0-gpu
 FROM $BASE_IMAGE AS builder
 
 USER root
