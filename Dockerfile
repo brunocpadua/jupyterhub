@@ -103,7 +103,6 @@ ARG PIP_CACHE_DIR=/tmp/pip-cache
 RUN --mount=type=cache,target=${PIP_CACHE_DIR} \
     python3 -m pip wheel --wheel-dir wheelhouse dist/*.whl
 
-
 ######################################################################
 # The final JupyterHub image, platform specific
 FROM $BASE_IMAGE AS jupyterhub
@@ -151,6 +150,15 @@ RUN apt-get update -yqq \
  && add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/" \
  && apt install -yqq --no-install-recommends r-base
 
+RUN apt-get update \
+ && apt-get install -yq --no-install-recommends \
+     libcairo2-dev \
+     libxt-dev \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY sshauthenticator-0.1.zip .
+
 RUN pip install notebook  \
     matplotlib  \
     scipy  \
@@ -163,13 +171,8 @@ RUN pip install notebook  \
     tqdm \
     sshauthenticator-0.1.zip
 
-RUN apt-get update \
- && apt-get install -yq --no-install-recommends \
-     libcairo2-dev \
-     libxt-dev \
- && apt-get clean \
- && rm -rf /var/lib/apt/lists/*
+RUN rm sshauthenticator-0.1.zip
 
-RUN R -e "install.packages('IRkernel', repos='http://cran.us.r-project.org'); IRkernel::installspec(user=FALSE)"
+RUN R -e "install.packages('IRkernel'); IRkernel::installspec(user=FALSE)"
 
 CMD ["jupyterhub"]
