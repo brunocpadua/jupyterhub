@@ -83,7 +83,7 @@ async def app(request, io_loop, ssl_tmpdir):
         try:
             mocked_app.stop()
         except Exception as e:
-            print("Error stopping Hub: %s" % e, file=sys.stderr)
+            print(f"Error stopping Hub: {e}", file=sys.stderr)
 
     request.addfinalizer(fin)
     await mocked_app.initialize([])
@@ -246,6 +246,7 @@ def admin_user(app, username):
 
 
 _groupname_counter = 0
+_rolename_counter = 0
 
 
 def new_group_name(prefix='testgroup'):
@@ -253,6 +254,13 @@ def new_group_name(prefix='testgroup'):
     global _groupname_counter
     _groupname_counter += 1
     return f'{prefix}-{_groupname_counter}'
+
+
+def new_role_name(prefix='testrole'):
+    """Return a new unique role name"""
+    global _rolename_counter
+    _rolename_counter += 1
+    return f'{prefix}-{_rolename_counter}'
 
 
 @fixture
@@ -276,6 +284,22 @@ def group(app):
     app.db.add(group)
     app.db.commit()
     yield group
+
+
+@fixture
+def role(app):
+    """Fixture for creating a temporary role
+
+    Each time the fixture is used, a new role is created
+
+    The role is deleted after the test
+    """
+    role = orm.Role(name=new_role_name())
+    app.db.add(role)
+    app.db.commit()
+    yield role
+    app.db.delete(role)
+    app.db.commit()
 
 
 class MockServiceSpawner(jupyterhub.services.service._ServiceSpawner):
@@ -478,8 +502,6 @@ def create_user_with_scopes(app, create_temp_role):
         return app.users[orm_user.id]
 
     yield temp_user_creator
-    for user in temp_users:
-        app.users.delete(user)
 
 
 @fixture
